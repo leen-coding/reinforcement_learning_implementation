@@ -103,40 +103,67 @@ class MonteCarlo():
         self.max_step = 200
         self.env = GridWordEnv(gird_size=5, render=True)
         self.env.reset()
-        self.pi = np.zeros((5,5))
-        
+        self.pi = np.zeros((5,5), dtype=int)
+        self.gamma = 0.8
+        self.N = np.zeros((5,5,4))
 
-
-    def policy_evaluation(self, reward, new_state, done):
-        v_pi = np.zeros((5,5))
-        v    = np.zeros((5,5)) 
-        first_flag = True
-        while np.max(np.abs(v_pi - v)) > self.epsilon or first_flag:
-            v = v_pi.copy()
-            v_pi = reward + self.gamma * (0 if done else v[new_state[0], new_state[1]])
-        
-        return v_pi
+    def policy_evaluation_every_visit(self, q_pi, MDP_episode):
+        #本质上还是policy evaluation, 这个v_pi是依赖pi的。
+        # MC 这里可以直接估计q, 而不是估计v然后从v 推导q， 否则要做两遍遍历
+        G = 0 
+        for current_state, pi_action, reward, new_state in reversed(MDP_episode): #倒序更新G
+            self.N[current_state[0],current_state[1], pi_action] =  self.N[current_state[0],current_state[1], pi_action] + 1
+            G = reward + self.gamma * G
+            # 增量式更新v_pi的平均值。w_k+1 = w_k - 1/k * (w_k - xk)
+            q_pi[current_state[0], current_state[1], pi_action] = q_pi[current_state[0], current_state[1], pi_action] - (q_pi[current_state[0], current_state[1], pi_action] - G)/self.N[current_state[0],current_state[1], pi_action]
+        return q_pi
             
             
-    def generate_episdoe(self, pi):
+    def generate_episdoe(self, q_pi):
         self.env.reset()
         step = 0
+        MDP_episode = []
         while step < self.max_step:
-            pi_action = pi[(self.env.state[0], self.env.state[1])]
-            self.env.step(pi_action)
+            current_state = self.env.state.copy()
+            greedy_action = np.argmax(q_pi[current_state[0],current_state[1]])
+            pi_action = self.epsilon_greedy(greedy_action, 0.2)
+            new_state, reward, done, _ = self.env.step(pi_action)
             step += 1
+            MDP_episode.append((current_state, pi_action, reward, new_state))
+            if done: break
+        return MDP_episode
+    
+    def epsilon_greedy(self, greedy_action, epsilon):
+        probs = np.ones(4) * epsilon/4
+        probs[greedy_action] = 1 - epsilon + epsilon/4
+        return np.random.choice(4, p=probs)
 
 
-        pass
+
+    def run_mc(self):
+        q_pi = np.zeros((5,5,4))
+        epsilon = 0.2
+        
+        num_episode = 10
+        for iters in range(num_episode):
+
+            MDP_episode = self.generate_episdoe(q_pi)
+            q_pi = self.policy_evaluation_every_visit(q_pi, MDP_episode)
+
+
 
 
 
 
 if __name__ == "__main__":
+
     # vi = ValueIteration()
     # pi = vi.iteration()
     # vi.run_policy(pi)
 
-    p = PolicyIteration()
-    pi = p.iteration()
-    p.run_policy(pi)
+    # p = PolicyIteration()
+    # pi = p.iteration()
+    # p.run_policy(pi)
+
+    mt = MonteCarlo()
+    mt.run_mc()
