@@ -99,13 +99,13 @@ class PolicyIteration():
 
 class MonteCarlo():
     def __init__(self):
-        self.epsilon = 1e-5
-        self.max_step = 200
+        self.max_step = 500
         self.env = GridWordEnv(gird_size=5, render=True)
         self.env.reset()
+        self.env.render_enabled = False
         self.pi = np.zeros((5,5), dtype=int)
         self.gamma = 0.8
-        self.N = np.zeros((5,5,4))
+        self.N = np.zeros((5,5,4)) #每个状态，每个动作的次数
 
     def policy_evaluation_every_visit(self, q_pi, MDP_episode):
         #本质上还是policy evaluation, 这个v_pi是依赖pi的。
@@ -119,19 +119,21 @@ class MonteCarlo():
         return q_pi
             
             
-    def generate_episdoe(self, q_pi):
+    def generate_episdoe(self, q_pi, epsilon):
         self.env.reset()
         step = 0
         MDP_episode = []
+        reward_sum = 0
         while step < self.max_step:
             current_state = self.env.state.copy()
             greedy_action = np.argmax(q_pi[current_state[0],current_state[1]])
-            pi_action = self.epsilon_greedy(greedy_action, 0.2)
+            pi_action = self.epsilon_greedy(greedy_action, epsilon)
             new_state, reward, done, _ = self.env.step(pi_action)
             step += 1
             MDP_episode.append((current_state, pi_action, reward, new_state))
+            reward_sum = reward_sum + reward
             if done: break
-        return MDP_episode
+        return MDP_episode, reward_sum
     
     def epsilon_greedy(self, greedy_action, epsilon):
         probs = np.ones(4) * epsilon/4
@@ -140,18 +142,30 @@ class MonteCarlo():
 
 
 
-    def run_mc(self):
+    def train_mc(self):
         q_pi = np.zeros((5,5,4))
-        epsilon = 0.2
+        epsilon = 0.1
         
-        num_episode = 10
+        num_episode = 50000
         for iters in range(num_episode):
-
-            MDP_episode = self.generate_episdoe(q_pi)
+            MDP_episode,reward_sum = self.generate_episdoe(q_pi, epsilon)
+            
             q_pi = self.policy_evaluation_every_visit(q_pi, MDP_episode)
+            if iters % 1000 == 0:
+                print(reward_sum)
 
-
-
+        pi = np.argmax(q_pi, axis=2)
+        return pi
+    
+    def run_policy(self, pi):
+        done = False
+        state = self.env.reset()
+        self.env.render_enabled = True
+        while not done:
+            action = pi[state[0], state[1]]
+            self.state, reward, done, _ = self.env.step(action)
+            state = self.state
+        plt.show()
 
 
 
@@ -166,4 +180,14 @@ if __name__ == "__main__":
     # p.run_policy(pi)
 
     mt = MonteCarlo()
-    mt.run_mc()
+    pi = mt.train_mc()
+    
+    # print(pi)
+
+    # pi = np.array([ [3, 3, 3, 3, 1],
+    #                 [3, 0, 2, 1, 1],
+    #                 [0, 0, 3, 3, 1],
+    #                 [0, 3, 3, 3, 1],
+    #                 [3, 3, 3, 3, 0]])
+    
+    mt.run_policy(pi)
