@@ -1,6 +1,15 @@
 from gridworld_env import GridWordEnv
 import numpy as np
 import matplotlib.pyplot as plt
+from dataclasses import dataclass
+
+@dataclass
+class EnvParams:
+    gamma: float = 0.8
+    grid_size: int = 5
+    epsilon: float = 1e-5
+
+
 class ValueIteration():
     def __init__(self):
         self.gridworld = GridWordEnv(gird_size=5, render=True)
@@ -167,27 +176,201 @@ class MonteCarlo():
             state = self.state
         plt.show()
 
+class TemporalDifference():
+    def __init__(self):
+        self.env = GridWordEnv(gird_size=5, render=True)
+        self.gamma = 0.99
+        self.max_step = 2000
+        self.episode = 50
+        self.state0 = self.env.reset()
+        self.greedy_action = np.zeros((5,5))
+        self.v_pi = np.zeros((5,5))
+        self.alpha = 1
+   
+    def epsilon_greedy_action(self, epsilon, greedy_action) -> int: 
+        probs = np.full(4, epsilon/4, dtype="float")
+        probs[greedy_action] = 1 - epsilon + epsilon/4
+        return np.random.choice(4, p = probs)
+
+    def run_td(self):
+        for i in range(self.episode):
+            step_matrix = np.zeros((5,5))
+            state = self.env.reset()
+            next_state = state.copy()
+            step = 0
+            done = False
+            while step < self.max_step and not done:
+                step = step + 1
+                step_matrix[state[0], state[1]] += 1
+                state = next_state.copy()
+                q_pi = []
+                for j in range(4):
+                    q_pi.append()
+                # 如果是单纯的td 算法，到这里就没有办法进行了。没有办法更新策略Pi, 因为是model free,因此没办法遍历四个动作，找最优动作。这个问题的来源是，bellman eq解的是v pi, 如果要进行更新策略则需要q_pi, 而v_pi到q_pi这个过程是需要transition model的。所以引入sarsa.
+                next_state, reward, done, _ = self.env.step(action)
+                self.v_pi[state[0], state[1]] = self.v_pi[state[0], state[1]] - self.alpha/step_matrix[state[0], state[1]] * (self.v_pi[state[0], state[1]] - (reward + self.gamma * self.v_pi[next_state[0], next_state[1]]))
+
+class SARSA():
+    def __init__(self):
+        self.episode = 5000
+        self.q_pi = np.zeros((5,5,4))
+        self.alpha = 0.1
+        self.gamma = 0.9
+        self.env = GridWordEnv(gird_size=5, render=True)
+        self.env.render_enabled = False
+        self.max_step = 2000
+
+
+    def epsilon_greedy_action(self, epsilon, greedy_action) -> int: 
+        probs = np.full(4, epsilon/4, dtype="float")
+        probs[greedy_action] = 1 - epsilon + epsilon/4
+        return np.random.choice(4, p = probs)
+
+    def run_sarsa(self):
+        for i in range(self.episode):
+            reward_sum = 0 
+            state = self.env.reset()
+            next_state = state.copy()
+            step = 0
+            done = False
+            greedy_action = np.argmax(self.q_pi[state[0],state[1]])
+            action = self.epsilon_greedy_action(0.2, greedy_action)
+            while step < self.max_step and not done:
+                step = step + 1
+                next_state, reward, done, _ = self.env.step(action)
+                current_q =  self.q_pi[state[0],state[1], action]
+                action_current_state = action
+
+                greedy_action = np.argmax(self.q_pi[next_state[0],next_state[1]])
+                action = self.epsilon_greedy_action(0.2, greedy_action)
+
+                next_q = 0 if done else self.q_pi[next_state[0],next_state[1],action] 
+
+                self.q_pi[state[0],state[1],action_current_state] = current_q - self.alpha * (current_q - (reward + self.gamma * next_q))
+                state = next_state.copy()
+                reward_sum = reward_sum + reward
+
+            if i%50 == 0:
+                print(reward_sum) 
+
+    def eval_sarsa(self):
+        state = self.env.reset()
+        self.env.render_enabled = True
+        done = False
+        while not done:
+            greedy_action = np.argmax(self.q_pi[state[0],state[1]])
+            state, reward, done, _ = self.env.step(greedy_action)
+            
+
+                
+
+
+class QLearning():
+    def __init__(self):
+        self.env = GridWordEnv(render=True)
+        self.env.render_enabled = False
+        self.max_step = 2000
+        self.episode = 2000
+        self.q_pi = np.zeros((5,5,4))
+        self.alpha = 0.1
+        self.gamma = 0.99 
+    
+    def epsilon_greedy(self, epsilon, greedy_action):
+        probs = np.full(4, epsilon/4, dtype="float")
+        probs[greedy_action] = 1 - epsilon + epsilon/4
+        return np.random.choice(4, p=probs)
+
+    def run_q_learning(self):
+
+        for i in range(self.episode):
+            step = 0
+            done = False
+            state = self.env.reset()
+            reward_sum = 0
+            while step < self.max_step and not done:
+                
+                greedy_action = np.argmax(self.q_pi[state[0], state[1]])
+                # behavior policy 是epsilon greedy
+                action = self.epsilon_greedy(0.2, greedy_action)
+
+                next_state, reward, done, _ = self.env.step(action)
+
+                this_q = self.q_pi[state[0], state[1], action]
+                
+                greedy_action_next_state = np.argmax(self.q_pi[next_state [0], next_state [1]])
+     
+                td_target = reward if done else reward + self.gamma* self.q_pi[next_state[0], next_state[1], greedy_action_next_state]
+
+                td_error = this_q - td_target
+                # target policy 是 greedy. 
+                self.q_pi[state[0], state[1], action] = this_q - self.alpha * td_error
+                # behavior policy 和 target policy 不同，所以q learning 是off-policy. 如果说把q learning 改成on-policy 那实际上和sarasa是一样的了。 
+                state = next_state.copy()
+                reward_sum = reward_sum + reward
+            if i%50 == 0:
+                print(f'reward of episode {i} is {reward_sum}')
+            
+
+    def eval(self):
+        state = self.env.reset()
+        self.env.render_enabled = True
+        done = False
+        while not done:
+
+            action = np.argmax(self.q_pi[state[0], state[1]])
+            state, reward, done, _ = self.env.step(action)
+
+
+class SARSAwithFunction():
+
+    def __init__(self):
+        pass
+
+
+    def second_order_fuction(self, w, state):
+        x = state[0]
+        y = state[1]
+
+        f = 
+
+        return 
+                
+                
+                
+                
+
+
+
+
 
 
 if __name__ == "__main__":
 
-    # vi = ValueIteration()
-    # pi = vi.iteration()
-    # vi.run_policy(pi)
+    algorithm_name = "QLearning"
 
-    # p = PolicyIteration()
-    # pi = p.iteration()
-    # p.run_policy(pi)
+    if algorithm_name == "VI":
 
-    mt = MonteCarlo()
-    pi = mt.train_mc()
-    
-    # print(pi)
+        vi = ValueIteration()
+        pi = vi.iteration()
+        vi.run_policy(pi)
 
-    # pi = np.array([ [3, 3, 3, 3, 1],
-    #                 [3, 0, 2, 1, 1],
-    #                 [0, 0, 3, 3, 1],
-    #                 [0, 3, 3, 3, 1],
-    #                 [3, 3, 3, 3, 0]])
-    
-    mt.run_policy(pi)
+    if algorithm_name == "PE":
+        p = PolicyIteration()
+        pi = p.iteration()
+        p.run_policy(pi)
+
+    if algorithm_name == "MC":
+        mt = MonteCarlo()
+        pi = mt.train_mc()
+        mt.run_policy(pi)
+
+    if algorithm_name == "SARSA":
+        sa = SARSA()
+        sa.run_sarsa()
+        sa.eval_sarsa()
+
+    if algorithm_name == "QLearning":
+        ql = QLearning()
+        ql.run_q_learning()
+        ql.eval()
+        
